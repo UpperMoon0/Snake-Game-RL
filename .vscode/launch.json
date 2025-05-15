@@ -5,20 +5,20 @@
             "name": "Python: Train",
             "type": "debugpy",
             "request": "launch",
-            "program": "${file}",
+            "program": "${workspaceFolder}/main.py",
             "console": "integratedTerminal",
             "justMyCode": true, 
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
             },
             "cwd": "${workspaceFolder}",
-            "args": ["--continue-training", "--episodes", "10000", "--demo"] 
+            "args": ["--continue-training", "--ais", "4", "--episodes", "3000", "--demo"] 
         },
         {
             "name": "Python: Play",
             "type": "debugpy",
             "request": "launch",
-            "program": "${file}",
+            "program": "${workspaceFolder}/main.py",
             "console": "integratedTerminal",
             "justMyCode": true, 
             "env": {
