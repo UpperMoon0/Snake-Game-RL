@@ -231,17 +231,11 @@ def game_loop(screen, clock, agent, num_episodes=1000, training_mode=True, displ
                 if event.type == pygame.QUIT:
                     pygame.quit()
                     return episode_rewards, agent.q_table # Or save q_table
-                # Manual controls (optional, can be removed for pure RL)
-                # if event.type == pygame.KEYDOWN:
-                #     if event.key == pygame.K_UP: snake.change_direction(UP)
-                #     elif event.key == pygame.K_DOWN: snake.change_direction(DOWN)
-                #     elif event.key == pygame.K_LEFT: snake.change_direction(LEFT)
-                #     elif event.key == pygame.K_RIGHT: snake.change_direction(RIGHT)
 
-            snake.change_direction(action) # AI controls the snake
+            snake.change_direction(action) # AI controls snake if not manual
             collision = snake.move()
             steps_since_last_food += 1
-            reward = 0 # Default reward
+            reward = 0
 
             if collision:
                 reward = -100  # Penalty for collision
@@ -276,7 +270,7 @@ def game_loop(screen, clock, agent, num_episodes=1000, training_mode=True, displ
 
 
             current_reward += reward
-            next_state = agent.get_state(snake, food) # Get new state after action
+            next_state = agent.get_state(snake, food)
 
             if training_mode:
                 agent.update_q_table(state, action, reward, next_state)
@@ -318,14 +312,128 @@ def game_loop(screen, clock, agent, num_episodes=1000, training_mode=True, displ
         print("Final Q-table saved as q_table_final.npy")
     return episode_rewards, agent.q_table
 
+def play_mode_game_loop(screen, clock, ai_q_learning_agent, num_ai_snakes=1):
+    player_snake = Snake()
+    food = Food()
+
+    # Initialize AI snakes
+    ai_snakes = []
+    current_all_snake_segments = set(player_snake.get_body())
+
+    for _ in range(num_ai_snakes):
+        ai_snake_instance = Snake()
+        while True:
+            # Generate a random head position for the AI snake's first segment
+            potential_head_pos = (random.randint(0, GRID_WIDTH - 1), random.randint(0, GRID_HEIGHT - 1))
+            # For a new snake, its body is just its head. Check if this spot is free.
+            if potential_head_pos not in current_all_snake_segments:
+                ai_snake_instance.body = [potential_head_pos]
+                ai_snake_instance.direction = random.choice([UP, DOWN, LEFT, RIGHT])
+                
+                for segment in ai_snake_instance.get_body(): # Should be just one segment initially
+                    current_all_snake_segments.add(segment)
+                
+                ai_snakes.append(ai_snake_instance)
+                break
+    
+    food.position = food.randomize_position(list(current_all_snake_segments))
+
+    game_over = False
+    player_score = 0
+
+    font = pygame.font.Font(None, 36)
+
+    while not game_over:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                # Save Q-table if necessary or exit, for now just return
+                return
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_UP: player_snake.change_direction(UP)
+                elif event.key == pygame.K_DOWN: player_snake.change_direction(DOWN)
+                elif event.key == pygame.K_LEFT: player_snake.change_direction(LEFT)
+                elif event.key == pygame.K_RIGHT: player_snake.change_direction(RIGHT)
+
+        if player_snake.move():
+            game_over = True
+
+        if game_over:
+            break
+
+        # Check food collision for player
+        if player_snake.get_head_position() == food.get_position():
+            player_snake.grow_snake()
+            player_score += 1
+            
+            temp_occupied_cells = set(player_snake.get_body())
+            for s_ai in ai_snakes:
+                for seg in s_ai.get_body():
+                    temp_occupied_cells.add(seg)
+            food.position = food.randomize_position(list(temp_occupied_cells))
+
+        # Move AI snakes & check collisions
+        active_ai_snakes = []
+        for ai_snake in ai_snakes:
+            if ai_q_learning_agent and ai_q_learning_agent.q_table and len(ai_q_learning_agent.q_table) > 0:
+                state = ai_q_learning_agent.get_state(ai_snake, food)
+                action = ai_q_learning_agent.choose_action(state) # Agent is in exploitation mode
+                ai_snake.change_direction(action)
+            else: # Fallback to random movement if no Q-table or agent
+                if random.random() < 0.2: # 20% chance to change direction
+                    ai_snake.change_direction(random.choice([UP, DOWN, LEFT, RIGHT]))
+            
+            ai_snake_collided_self_or_wall = ai_snake.move()
+
+            if not ai_snake_collided_self_or_wall:
+                active_ai_snakes.append(ai_snake)
+
+                # Check collisions between this live AI and player
+                if player_snake.get_head_position() in ai_snake.get_body(): # Player head vs AI body
+                    game_over = True
+                    break 
+                if ai_snake.get_head_position() in player_snake.get_body(): # AI head vs player body
+                    game_over = True
+                    break
+            # If ai_snake_collided_self_or_wall is True, the AI snake is not added to active_ai_snakes,
+            # effectively removing it from the game.
+        
+        ai_snakes = active_ai_snakes
+        if game_over:
+            break
+
+        # Draw everything
+        screen.fill(BLACK)
+        draw_snake(screen, player_snake)
+        for ai_snake_to_draw in ai_snakes:
+            draw_snake(screen, ai_snake_to_draw)
+        draw_food(screen, food)
+        
+        # Display score
+        score_text_surface = font.render(f"Score: {player_score}", True, WHITE)
+        screen.blit(score_text_surface, (10, 10))
+        
+        pygame.display.flip()
+        clock.tick(10)
+
+    print(f"Game Over! Your score: {player_score}")
+    time.sleep(2)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Snake RL Agent")
     parser.add_argument("--continue-training", action="store_true", help="Continue training from the last saved model (q_table.npy or q_table_final.npy if the former is not found).")
     parser.add_argument("--demo", action="store_true", help="Run in demonstration mode using q_table_final.npy. If combined with training, demo runs after training.")
     parser.add_argument("--episodes", type=int, default=2000, help="Number of episodes for training.")
+    parser.add_argument("--play", action="store_true", help="Play the game against AI snakes.")
+    parser.add_argument("--ais", type=int, default=1, help="Number of AI snakes when in --play mode.")
 
     args = parser.parse_args()
+
+    if args.play and (args.continue_training):
+        print("Error: --play mode cannot be used with --continue-training simultaneously.")
+        exit()
+    if args.play and args.episodes != parser.get_default("episodes"):
+        print("Warning: --episodes is ignored in --play mode.")
 
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -333,6 +441,7 @@ if __name__ == "__main__":
     clock = pygame.time.Clock()
 
     agent = QLearningAgent()
+    ai_agent_for_play_mode = None
 
     q_table_final_path = "q_table_final.npy"
     q_table_periodic_path = "q_table.npy"
@@ -342,16 +451,32 @@ if __name__ == "__main__":
     # --- Determine Action: Train, Continue, or Prepare for Demo ---
     needs_training = False
 
-    if args.continue_training:
+    if args.play:
+        print(f"--- Player vs. AI Mode ({args.ais} AI(s)) ---")
+        ai_agent_for_play_mode = QLearningAgent(exploration_rate=0.0, min_exploration_rate=0.0) # Ensure exploitation
+        try:
+            print(f"Loading model for AI snakes from {q_table_final_path}...")
+            ai_agent_for_play_mode.q_table = np.load(q_table_final_path, allow_pickle=True).item()
+            if not ai_agent_for_play_mode.q_table:
+                 print(f"WARNING: Loaded Q-table from {q_table_final_path} is empty. AI snakes will use random behavior.")
+            else:
+                print("Model loaded successfully for AI snakes.")
+        except FileNotFoundError:
+            print(f"WARNING: {q_table_final_path} not found. AI snakes will use random behavior.")
+            ai_agent_for_play_mode.q_table = {} 
+        except Exception as e:
+            print(f"ERROR: Could not load {q_table_final_path} for AI snakes: {e}. AI snakes will use random behavior.")
+            ai_agent_for_play_mode.q_table = {}
+        
+        play_mode_game_loop(screen, clock, ai_agent_for_play_mode, num_ai_snakes=args.ais)
+    elif args.continue_training:
         print("Attempting to continue training...")
         loaded_from_periodic = False
         try:
             agent.q_table = np.load(q_table_periodic_path, allow_pickle=True).item()
-            # Potentially load epsilon if saved with q_table, or adjust as needed
             print(f"Loaded Q-table from periodic save: {q_table_periodic_path} to continue training.")
             model_loaded_for_training_continuation = True
             loaded_from_periodic = True
-            needs_training = True
         except FileNotFoundError:
             print(f"Periodic save {q_table_periodic_path} not found.")
         except Exception as e:
@@ -362,7 +487,7 @@ if __name__ == "__main__":
                 agent.q_table = np.load(q_table_final_path, allow_pickle=True).item()
                 # If continuing from a final model, epsilon might need adjustment if it was at min_epsilon
                 if agent.epsilon <= agent.min_epsilon: # Give it a bit more exploration if it was fully trained
-                    agent.epsilon = 0.1 # Or some other suitable value
+                    agent.epsilon = 0.1
                 print(f"Loaded Q-table from final save: {q_table_final_path} to continue training.")
                 model_loaded_for_training_continuation = True
                 needs_training = True
@@ -373,16 +498,16 @@ if __name__ == "__main__":
 
         if not model_loaded_for_training_continuation:
             print("No existing model found to continue. Starting new training session.")
-            agent.q_table = {} # Reset Q-table for new model
-            agent.epsilon = 1.0 # Reset epsilon for new model
+            agent.q_table = {}
+            agent.epsilon = 1.0
             needs_training = True
         else:
             print("Continuing training with loaded model.")
 
     elif not args.demo: # If not continuing and not demo-only, it's a new training session
         print("Starting new training session.")
-        agent.q_table = {} # Reset Q-table for new model
-        agent.epsilon = 1.0 # Reset epsilon for new model
+        agent.q_table = {}
+        agent.epsilon = 1.0
         needs_training = True
     
     # If only --demo is specified, needs_training remains False here.
@@ -390,44 +515,50 @@ if __name__ == "__main__":
     if needs_training:
         print(f"--- Training Phase (UI Disabled) for {args.episodes} episodes ---")
         # Training always has graphics disabled
-        current_rewards, q_table = game_loop(screen, clock, agent, num_episodes=args.episodes, training_mode=True, display_game=False)
+        current_rewards, q_table_from_training = game_loop(screen, clock, agent, num_episodes=args.episodes, training_mode=True, display_game=False)
         rewards.extend(current_rewards) # Accumulate rewards if multiple training sessions happen (though current logic implies one)
         print("Training phase complete.")
         # Q-table is saved within game_loop (q_table_final.npy at end, q_table.npy periodically)
+        # agent.q_table is updated by game_loop
 
     # --- Demonstration Phase ---
     if args.demo:
         print("\n--- Demonstration Phase (UI Enabled) ---")
-        if not agent.q_table or (needs_training and not q_table): # If training just happened, q_table from game_loop is the one to use
-                                                                # If no training, try to load final model for demo
+        model_available_for_demo = False
+        if needs_training: # True if training was run in this session
+            if agent.q_table and len(agent.q_table) > 0:
+                print("Using model from current training session for demonstration.")
+                model_available_for_demo = True
+            else:
+                print("Warning: Training was run, but no Q-table is available in the agent from this session. Attempting to load from file.")
+        
+        if not model_available_for_demo:
             try:
                 print(f"Loading model for demonstration from {q_table_final_path}...")
                 agent.q_table = np.load(q_table_final_path, allow_pickle=True).item()
-                agent.epsilon = 0 # No exploration for demo
-                print("Model loaded successfully for demonstration.")
+                if not agent.q_table or len(agent.q_table) == 0:
+                    print(f"ERROR: Loaded Q-table from {q_table_final_path} is empty.")
+                else:
+                    print("Model loaded successfully for demonstration.")
+                    model_available_for_demo = True
             except FileNotFoundError:
                 print(f"ERROR: {q_table_final_path} not found. Cannot run demonstration without a trained model.")
-                pygame.quit()
-                exit()
             except Exception as e:
                 print(f"ERROR: Could not load {q_table_final_path} for demonstration: {e}")
-                pygame.quit()
-                exit()
         
-        if agent.q_table: # Ensure q_table is available
-            agent.epsilon = 0 # Ensure no exploration for demo
+        if model_available_for_demo and agent.q_table and len(agent.q_table) > 0:
+            agent.epsilon = 0 # No exploration for demo
             game_loop(screen, clock, agent, num_episodes=5, training_mode=False, display_game=True)
         else:
             print("No model available to run demonstration.")
-    elif not needs_training and not args.demo:
-        print("No action specified (e.g., --continue-training or --demo). Exiting.")
-
+    elif not needs_training and not args.demo and not args.play:
+        print("No action specified (e.g., --train, --continue-training, --demo, --play). Exiting.")
 
     pygame.quit()
     print("Game closed.")
 
     # Optional: Plot rewards if you have matplotlib
-    if rewards: # Plot if any rewards were collected (i.e., training occurred)
+    if rewards:
         plt.plot(rewards)
         plt.xlabel("Episode")
         plt.ylabel("Total Reward")
