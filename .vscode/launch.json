@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: Current File",
+            "name": "Python: Train",
             "type": "debugpy",
             "request": "launch",
             "program": "${file}",
@@ -12,7 +12,20 @@
                 "PYTHONPATH": "${workspaceFolder}"
             },
             "cwd": "${workspaceFolder}",
-            "args": ["--continue-training", "--episodes", "10000", "--demo", "--play", "--ais", "3"] 
+            "args": ["--continue-training", "--episodes", "10000", "--demo"] 
+        },
+        {
+            "name": "Python: Play",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true, 
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "cwd": "${workspaceFolder}",
+            "args": ["--episodes", "10000", "--demo", "--play", "--ais", "3"] 
         }
     ]
 }

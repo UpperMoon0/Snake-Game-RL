@@ -350,10 +350,10 @@ def play_mode_game_loop(screen, clock, ai_q_learning_agent, num_ai_snakes=1):
                 # Save Q-table if necessary or exit, for now just return
                 return
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_UP: player_snake.change_direction(UP)
-                elif event.key == pygame.K_DOWN: player_snake.change_direction(DOWN)
-                elif event.key == pygame.K_LEFT: player_snake.change_direction(LEFT)
-                elif event.key == pygame.K_RIGHT: player_snake.change_direction(RIGHT)
+                if event.key == pygame.K_w: player_snake.change_direction(UP)
+                elif event.key == pygame.K_s: player_snake.change_direction(DOWN)
+                elif event.key == pygame.K_a: player_snake.change_direction(LEFT)
+                elif event.key == pygame.K_d: player_snake.change_direction(RIGHT)
 
         if player_snake.move():
             game_over = True
