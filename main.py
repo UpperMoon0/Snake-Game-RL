@@ -1,3 +1,4 @@
+import argparse 
 from matplotlib import pyplot as plt
 import pygame
 import numpy as np
@@ -319,6 +320,13 @@ def game_loop(screen, clock, agent, num_episodes=1000, training_mode=True, displ
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Snake RL Agent")
+    parser.add_argument("--continue-training", action="store_true", help="Continue training from the last saved model (q_table.npy or q_table_final.npy if the former is not found).")
+    parser.add_argument("--demo", action="store_true", help="Run in demonstration mode using q_table_final.npy. If combined with training, demo runs after training.")
+    parser.add_argument("--episodes", type=int, default=2000, help="Number of episodes for training.")
+
+    args = parser.parse_args()
+
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("Snake RL")
@@ -326,81 +334,100 @@ if __name__ == "__main__":
 
     agent = QLearningAgent()
 
-    # --- Model Loading/Training Choice ---
-    q_table_path = "q_table_final.npy"
-    training_needed = False
-    rewards = [] # Initialize rewards
+    q_table_final_path = "q_table_final.npy"
+    q_table_periodic_path = "q_table.npy"
+    rewards = []
+    model_loaded_for_training_continuation = False
 
-    # Check if a pre-trained model exists to offer the choice
-    can_load_model = False
-    try:
-        with open(q_table_path, 'rb') as f: # Try opening to check existence
-            can_load_model = True
-    except FileNotFoundError:
-        pass # Model doesn't exist, will train new
+    # --- Determine Action: Train, Continue, or Prepare for Demo ---
+    needs_training = False
 
-    if can_load_model:
-        load_model_choice = input(f"Load pre-trained model from '{q_table_path}'? (yes/no): ").strip().lower()
-        if load_model_choice == 'yes':
-            try:
-                agent.q_table = np.load(q_table_path, allow_pickle=True).item()
-                agent.epsilon = agent.min_epsilon # Start with low exploration if loaded
-                print(f"Loaded Q-table from {q_table_path}")
-                training_needed = False
-            except Exception as e:
-                print(f"Error loading Q-table: {e}. Training a new model.")
-                training_needed = True # Ensure training if loading failed
-        else:
-            print("Opted to train a new model.")
-            training_needed = True
-    else:
-        print(f"No pre-trained model found at '{q_table_path}'. Training a new model.")
-        training_needed = True
-
-
-    if training_needed:
-        # --- Training Phase ---
-        print("Starting Training...")
-        # To load a partially trained Q-table (e.g., q_table.npy) if you want to resume:
-        # try:
-        #     agent.q_table = np.load("q_table.npy", allow_pickle=True).item()
-        #     print("Resuming training from q_table.npy")
-        # except FileNotFoundError:
-        #     print("No q_table.npy found, starting fresh training.")
-
-        training_episodes = 2000 # Adjust as needed
-        # Set display_game to False during long training sessions for speed.
-        # rewards list is populated by game_loop
-        rewards, q_table = game_loop(screen, clock, agent, num_episodes=training_episodes, training_mode=True, display_game=False)
-        # Saving of q_table_final.npy is handled within game_loop at the end of training
-    # else:
-    # rewards list remains empty if no training occurred
-
-    # --- Testing/Demonstration Phase ---
-    # Ensure q_table is loaded if not trained
-    if not training_needed and not agent.q_table: # Should be loaded if training_needed is False
-        print("Error: Model was supposed to be loaded but Q-table is empty. Check loading logic.")
-        # As a fallback, try loading again or exit
+    if args.continue_training:
+        print("Attempting to continue training...")
+        loaded_from_periodic = False
         try:
-            agent.q_table = np.load(q_table_path, allow_pickle=True).item()
-            agent.epsilon = agent.min_epsilon
-            print(f"Re-loaded Q-table from {q_table_path} for demonstration.")
+            agent.q_table = np.load(q_table_periodic_path, allow_pickle=True).item()
+            # Potentially load epsilon if saved with q_table, or adjust as needed
+            print(f"Loaded Q-table from periodic save: {q_table_periodic_path} to continue training.")
+            model_loaded_for_training_continuation = True
+            loaded_from_periodic = True
+            needs_training = True
+        except FileNotFoundError:
+            print(f"Periodic save {q_table_periodic_path} not found.")
         except Exception as e:
-            print(f"Could not load Q-table for demonstration: {e}. Exiting.")
-            pygame.quit()
-            exit()
+            print(f"Error loading periodic Q-table {q_table_periodic_path}: {e}.")
 
+        if not model_loaded_for_training_continuation:
+            try:
+                agent.q_table = np.load(q_table_final_path, allow_pickle=True).item()
+                # If continuing from a final model, epsilon might need adjustment if it was at min_epsilon
+                if agent.epsilon <= agent.min_epsilon: # Give it a bit more exploration if it was fully trained
+                    agent.epsilon = 0.1 # Or some other suitable value
+                print(f"Loaded Q-table from final save: {q_table_final_path} to continue training.")
+                model_loaded_for_training_continuation = True
+                needs_training = True
+            except FileNotFoundError:
+                print(f"Final save {q_table_final_path} not found for continuation.")
+            except Exception as e:
+                print(f"Error loading final Q-table {q_table_final_path} for continuation: {e}.")
 
-    print("\\nStarting Demonstration (using learned Q-table)...")
-    agent.epsilon = 0 # Turn off exploration for demonstration
-    game_loop(screen, clock, agent, num_episodes=5, training_mode=False, display_game=True) # Run a few games to demonstrate
+        if not model_loaded_for_training_continuation:
+            print("No existing model found to continue. Starting new training session.")
+            agent.q_table = {} # Reset Q-table for new model
+            agent.epsilon = 1.0 # Reset epsilon for new model
+            needs_training = True
+        else:
+            print("Continuing training with loaded model.")
+
+    elif not args.demo: # If not continuing and not demo-only, it's a new training session
+        print("Starting new training session.")
+        agent.q_table = {} # Reset Q-table for new model
+        agent.epsilon = 1.0 # Reset epsilon for new model
+        needs_training = True
+    
+    # If only --demo is specified, needs_training remains False here.
+
+    if needs_training:
+        print(f"--- Training Phase (UI Disabled) for {args.episodes} episodes ---")
+        # Training always has graphics disabled
+        current_rewards, q_table = game_loop(screen, clock, agent, num_episodes=args.episodes, training_mode=True, display_game=False)
+        rewards.extend(current_rewards) # Accumulate rewards if multiple training sessions happen (though current logic implies one)
+        print("Training phase complete.")
+        # Q-table is saved within game_loop (q_table_final.npy at end, q_table.npy periodically)
+
+    # --- Demonstration Phase ---
+    if args.demo:
+        print("\n--- Demonstration Phase (UI Enabled) ---")
+        if not agent.q_table or (needs_training and not q_table): # If training just happened, q_table from game_loop is the one to use
+                                                                # If no training, try to load final model for demo
+            try:
+                print(f"Loading model for demonstration from {q_table_final_path}...")
+                agent.q_table = np.load(q_table_final_path, allow_pickle=True).item()
+                agent.epsilon = 0 # No exploration for demo
+                print("Model loaded successfully for demonstration.")
+            except FileNotFoundError:
+                print(f"ERROR: {q_table_final_path} not found. Cannot run demonstration without a trained model.")
+                pygame.quit()
+                exit()
+            except Exception as e:
+                print(f"ERROR: Could not load {q_table_final_path} for demonstration: {e}")
+                pygame.quit()
+                exit()
+        
+        if agent.q_table: # Ensure q_table is available
+            agent.epsilon = 0 # Ensure no exploration for demo
+            game_loop(screen, clock, agent, num_episodes=5, training_mode=False, display_game=True)
+        else:
+            print("No model available to run demonstration.")
+    elif not needs_training and not args.demo:
+        print("No action specified (e.g., --continue-training or --demo). Exiting.")
+
 
     pygame.quit()
     print("Game closed.")
 
     # Optional: Plot rewards if you have matplotlib
-    # Only plot if training occurred and rewards list is not empty
-    if training_needed and rewards:
+    if rewards: # Plot if any rewards were collected (i.e., training occurred)
         plt.plot(rewards)
         plt.xlabel("Episode")
         plt.ylabel("Total Reward")
