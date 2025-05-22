@@ -187,30 +187,35 @@ class QLearningAgent:
             self.epsilon *= self.epsilon_decay
 
 def draw_grid(surface):
-    for x in range(0, WIDTH, GRID_SIZE):
-        pygame.draw.line(surface, WHITE, (x, 0), (x, HEIGHT))
-    for y in range(0, HEIGHT, GRID_SIZE):
-        pygame.draw.line(surface, WHITE, (0, y), (WIDTH, y))
+    # Use global_WIDTH, global_HEIGHT, and global_GRID_SIZE for drawing
+    for x in range(0, global_WIDTH, global_GRID_SIZE):
+        pygame.draw.line(surface, WHITE, (x, 0), (x, global_HEIGHT))
+    for y in range(0, global_HEIGHT, global_GRID_SIZE):
+        pygame.draw.line(surface, WHITE, (0, y), (global_WIDTH, y))
 
 def draw_snake(surface, snake):
+    # Use global_GRID_SIZE for drawing segment size
     for segment in snake.get_body():
-        pygame.draw.rect(surface, GREEN, (segment[0] * GRID_SIZE, segment[1] * GRID_SIZE, GRID_SIZE, GRID_SIZE))
+        pygame.draw.rect(surface, GREEN, (segment[0] * global_GRID_SIZE, segment[1] * global_GRID_SIZE, global_GRID_SIZE, global_GRID_SIZE))
 
 def draw_food(surface, food):
-    pygame.draw.rect(surface, RED, (food.get_position()[0] * GRID_SIZE, food.get_position()[1] * GRID_SIZE, GRID_SIZE, GRID_SIZE))
+    # Use global_GRID_SIZE for drawing food size
+    pygame.draw.rect(surface, RED, (food.get_position()[0] * global_GRID_SIZE, food.get_position()[1] * global_GRID_SIZE, global_GRID_SIZE, global_GRID_SIZE))
 
 def game_loop(screen, clock, agent, num_episodes=1000, training_mode=True, display_game=True, num_ai_snakes_to_train=1):
     total_rewards_all_episodes = []
     max_avg_score_overall = 0 # Track max average score across episodes
 
     for episode in range(num_episodes):
-        snakes = [Snake(snake_id=i) for i in range(num_ai_snakes_to_train)]
-        food = Food()
+        # Pass global grid dimensions to Snake and Food constructors
+        snakes = [Snake(snake_id=i, grid_width=global_GRID_WIDTH, grid_height=global_GRID_HEIGHT, grid_size=global_GRID_SIZE) for i in range(num_ai_snakes_to_train)]
+        food = Food(grid_width=global_GRID_WIDTH, grid_height=global_GRID_HEIGHT)
 
         occupied_starts = set()
         for s_obj in snakes:
             while True:
-                start_pos = (random.randint(0, GRID_WIDTH - 1), random.randint(0, GRID_HEIGHT - 1))
+                # Use global_GRID_WIDTH and global_GRID_HEIGHT for random start positions
+                start_pos = (random.randint(0, global_GRID_WIDTH - 1), random.randint(0, global_GRID_HEIGHT - 1))
                 if start_pos not in occupied_starts:
                     s_obj.body = [start_pos]
                     s_obj.direction = random.choice([UP, DOWN, LEFT, RIGHT])
@@ -220,6 +225,7 @@ def game_loop(screen, clock, agent, num_episodes=1000, training_mode=True, displ
         all_initial_bodies = []
         for s_obj in snakes:
             all_initial_bodies.extend(s_obj.get_body())
+        # Food position is randomized using its own grid dimensions, which are now correct
         food.position = food.randomize_position(all_initial_bodies)
 
         current_episode_rewards_per_snake = [0] * num_ai_snakes_to_train
@@ -231,11 +237,12 @@ def game_loop(screen, clock, agent, num_episodes=1000, training_mode=True, displ
         start_time = time.time()
         episode_steps = 0
         # Heuristic timeout, scales with number of snakes and grid size
-        max_episode_steps = (GRID_WIDTH * GRID_HEIGHT * num_ai_snakes_to_train) * 1.5 
+        # Use global_GRID_WIDTH and global_GRID_HEIGHT for these calculations
+        max_episode_steps = (global_GRID_WIDTH * global_GRID_HEIGHT * num_ai_snakes_to_train) * 1.5 
         if num_ai_snakes_to_train == 1: # Longer for single snake
-             max_episode_steps = GRID_WIDTH * GRID_HEIGHT * 2.5
+             max_episode_steps = global_GRID_WIDTH * global_GRID_HEIGHT * 2.5
 
-        max_steps_without_food = GRID_WIDTH * GRID_HEIGHT # Per snake
+        max_steps_without_food = global_GRID_WIDTH * global_GRID_HEIGHT # Per snake
 
         while True: # Inner loop for steps in an episode
             episode_steps += 1
@@ -370,14 +377,26 @@ def game_loop(screen, clock, agent, num_episodes=1000, training_mode=True, displ
                         current_episode_rewards_per_snake[s_obj.id] += reward_for_q_update
             
             # 5. Display
-            if display_game or not training_mode:
+            if display_game and screen: # Added check for screen being not None
                 screen.fill(BLACK)
+                # draw_grid(screen) # Call draw_grid if displaying - Commented out
                 for s_disp_obj in snakes:
                     if s_disp_obj.is_alive: 
                         draw_snake(screen, s_disp_obj)
                 draw_food(screen, food)
                 pygame.display.flip()
                 clock.tick(15 if training_mode else 10)
+            elif not display_game and training_mode:
+                # If not displaying but training, we might still want a minimal delay 
+                # or event processing to keep things responsive if ever needed.
+                # For pure training with no display, this can be very minimal or even removed
+                # if game_loop is confirmed to not need pygame.event.get() for other reasons.
+                for event in pygame.event.get(): # Process events to prevent window freeze if it were visible
+                    if event.type == pygame.QUIT:
+                        if training_mode: np.save("q_table_emergency_exit.npy", agent.q_table)
+                        pygame.quit()
+                        return total_rewards_all_episodes, agent.q_table
+                # clock.tick(1000) # Or some very high tick rate if no drawing, or remove tick
 
         # Episode finished
         if training_mode:
@@ -414,17 +433,19 @@ def game_loop(screen, clock, agent, num_episodes=1000, training_mode=True, displ
     return total_rewards_all_episodes, agent.q_table
 
 def play_mode_game_loop(screen, clock, ai_q_learning_agent, num_ai_snakes=1):
-    player_snake = Snake(snake_id="player") # Give player a unique ID
-    food = Food()
+    # Pass global grid dimensions to Snake and Food constructors
+    player_snake = Snake(snake_id="player", grid_width=global_GRID_WIDTH, grid_height=global_GRID_HEIGHT, grid_size=global_GRID_SIZE)
+    food = Food(grid_width=global_GRID_WIDTH, grid_height=global_GRID_HEIGHT)
 
     # Initialize AI snakes
     ai_snakes = []
     current_all_snake_segments = set(player_snake.get_body())
 
     for i in range(num_ai_snakes):
-        ai_snake_instance = Snake(snake_id=f"ai_{i}")
+        ai_snake_instance = Snake(snake_id=f"ai_{i}", grid_width=global_GRID_WIDTH, grid_height=global_GRID_HEIGHT, grid_size=global_GRID_SIZE)
         while True:
-            potential_head_pos = (random.randint(0, GRID_WIDTH - 1), random.randint(0, GRID_HEIGHT - 1))
+            # Use global_GRID_WIDTH and global_GRID_HEIGHT for random start positions
+            potential_head_pos = (random.randint(0, global_GRID_WIDTH - 1), random.randint(0, global_GRID_HEIGHT - 1))
             if potential_head_pos not in current_all_snake_segments:
                 ai_snake_instance.body = [potential_head_pos]
                 ai_snake_instance.direction = random.choice([UP, DOWN, LEFT, RIGHT])
@@ -432,6 +453,7 @@ def play_mode_game_loop(screen, clock, ai_q_learning_agent, num_ai_snakes=1):
                 ai_snakes.append(ai_snake_instance)
                 break
     
+    # Food position is randomized using its own grid dimensions, which are now correct
     food.position = food.randomize_position(list(current_all_snake_segments))
 
     game_over = False
@@ -535,7 +557,8 @@ def play_mode_game_loop(screen, clock, ai_q_learning_agent, num_ai_snakes=1):
     screen.fill(BLACK)
     final_message = f"Game Over! Your score: {player_score}"
     msg_surface = font.render(final_message, True, WHITE)
-    msg_rect = msg_surface.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+    # Use global_WIDTH and global_HEIGHT for centering
+    msg_rect = msg_surface.get_rect(center=(global_WIDTH // 2, global_HEIGHT // 2))
     screen.blit(msg_surface, msg_rect)
     pygame.display.flip()
     time.sleep(3)
