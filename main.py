@@ -4,6 +4,8 @@ import pygame
 import numpy as np
 import random
 import time
+from snake import Snake  # Import Snake class
+from food import Food    # Import Food class
 
 # Screen dimensions
 WIDTH = 600
@@ -34,65 +36,6 @@ PENALTY_MOVE_PARALLEL_FOOD = -0.5 # Small penalty for not making progress toward
 PENALTY_HEAD_HITS_OTHER_BODY = -150 # Increased penalty
 REWARD_OTHER_HEAD_HITS_MY_BODY = 100  # Increased reward
 PENALTY_HEAD_TO_HEAD_COLLISION = -200 # Increased penalty
-
-class Snake:
-    def __init__(self, snake_id=0):
-        self.id = snake_id
-        self.body = [(GRID_WIDTH // 2, GRID_HEIGHT // 2)]
-        self.direction = random.choice([UP, DOWN, LEFT, RIGHT])
-        self.grow = False
-        self.is_alive = True
-
-    def move(self): # Returns penalty if collision, 0 otherwise
-        head_x, head_y = self.body[0]
-        dir_x, dir_y = self.direction
-        new_head = ((head_x + dir_x) % GRID_WIDTH, (head_y + dir_y) % GRID_HEIGHT)
-
-        # Check wall collision
-        if not (0 <= new_head[0] < GRID_WIDTH and 0 <= new_head[1] < GRID_HEIGHT):
-            self.is_alive = False
-            return PENALTY_SELF_WALL_COLLISION
-
-        # Check for collision with itself
-        if new_head in self.body[1:]:
-            self.is_alive = False
-            return PENALTY_SELF_WALL_COLLISION
-
-        self.body.insert(0, new_head)
-
-        if not self.grow:
-            self.body.pop()
-        else:
-            self.grow = False
-        return 0 # No collision from this move
-
-    def change_direction(self, new_direction):
-        # Prevent snake from reversing directly
-        if (new_direction[0] * -1, new_direction[1] * -1) == self.direction:
-            return
-        self.direction = new_direction
-
-    def grow_snake(self):
-        self.grow = True
-
-    def get_head_position(self):
-        return self.body[0]
-
-    def get_body(self):
-        return self.body
-
-class Food:
-    def __init__(self):
-        self.position = self.randomize_position([])
-
-    def randomize_position(self, snake_body):
-        while True:
-            pos = (random.randint(0, GRID_WIDTH - 1), random.randint(0, GRID_HEIGHT - 1))
-            if pos not in snake_body:
-                return pos
-
-    def get_position(self):
-        return self.position
 
 class QLearningAgent:
     def __init__(self, learning_rate=0.1, discount_factor=0.9, exploration_rate=1.0, exploration_decay_rate=0.995, min_exploration_rate=0.01):
@@ -618,9 +561,6 @@ if __name__ == "__main__":
     q_table_final_path = "q_table_final.npy"
     q_table_periodic_path = "q_table.npy"
     rewards = [] # For plotting training rewards
-    # model_loaded_for_training_continuation = False # Replaced by training_performed_this_run
-    # needs_training = False # Replaced by more direct logic
-    # num_snakes_for_training = 1 # Replaced by num_snakes_for_operation
 
     if args.play:
         print(f"--- Player vs. AI Mode ({args.ais if args.ais > 0 else 1} AI(s)) ---")
