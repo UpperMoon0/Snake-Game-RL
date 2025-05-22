@@ -41,8 +41,8 @@ PENALTY_STUCK = -75
 REWARD_MOVE_CLOSER_TO_FOOD = 1
 PENALTY_MOVE_AWAY_FROM_FOOD = -1.5 # More severe penalty for moving away
 PENALTY_MOVE_PARALLEL_FOOD = -0.5 # Small penalty for not making progress towards food
-PENALTY_HEAD_HITS_OTHER_BODY = -150 # Increased penalty
-REWARD_OTHER_HEAD_HITS_MY_BODY = 100  # Increased reward
+PENALTY_HEAD_HITS_OTHER_BODY = -175 # Increased penalty
+REWARD_OTHER_HEAD_HITS_MY_BODY = 200  # Increased reward
 PENALTY_HEAD_TO_HEAD_COLLISION = -200 # Increased penalty
 
 class QLearningAgent:
@@ -55,19 +55,37 @@ class QLearningAgent:
         self.min_epsilon = min_exploration_rate
         self.actions = [UP, DOWN, LEFT, RIGHT] # 0: UP, 1: DOWN, 2: LEFT, 3: RIGHT
 
-    def get_state(self, snake, food, all_snakes):
+    def get_state(self, snake, foods, all_snakes): # Changed 'food' to 'foods'
         head_x, head_y = snake.get_head_position()
-        food_x, food_y = food.get_position()
+
+        if not foods: # Should not happen if food is always present
+            # Handle case with no food (e.g., return a default state or raise error)
+            # For now, let's assume there's always at least one food item.
+            # If foods can be empty, this part needs robust handling.
+            norm_food_dx, norm_food_dy = 0, 0 # Default if no food
+        else:
+            # Find the closest food item
+            closest_food = None
+            min_dist_sq = float('inf')
+
+            for food_item in foods:
+                food_x, food_y = food_item.get_position()
+                dist_sq = (head_x - food_x)**2 + (head_y - food_y)**2
+                if dist_sq < min_dist_sq:
+                    min_dist_sq = dist_sq
+                    closest_food = food_item
+            
+            if closest_food:
+                food_x, food_y = closest_food.get_position()
+                food_dx = food_x - head_x
+                food_dy = food_y - head_y
+                norm_food_dx = np.sign(food_dx)
+                norm_food_dy = np.sign(food_dy)
+            else: # Should ideally not be reached if foods list is not empty
+                norm_food_dx, norm_food_dy = 0,0
 
 
-        # Relative position of food
-        food_dx = food_x - head_x
-        food_dy = food_y - head_y
-
-        # Normalize food_dx and food_dy to be -1, 0, or 1
-        norm_food_dx = np.sign(food_dx)
-        norm_food_dy = np.sign(food_dy)
-
+        # Relative position of food (closest)
         # Danger from self/wall
         # 0: No danger, 1: Danger (wall or self)
         danger_straight_self_wall = self._check_danger_self_wall(snake, snake.direction)
@@ -80,7 +98,6 @@ class QLearningAgent:
         danger_right_other = self._check_danger_other_snake(snake, self._get_relative_right(snake.direction), all_snakes)
 
         state = (
-            # Food location
             norm_food_dx, norm_food_dy,
 
             # Snake direction (one-hot encoded)
@@ -209,18 +226,17 @@ def draw_snake(surface, snake):
     for segment in snake.get_body():
         pygame.draw.rect(surface, snake.color, (segment[0] * global_GRID_SIZE, segment[1] * global_GRID_SIZE, global_GRID_SIZE, global_GRID_SIZE))
 
-def draw_food(surface, food):
+def draw_food(surface, food_item): # Renamed parameter for clarity
     # Use global_GRID_SIZE for drawing food size
-    pygame.draw.rect(surface, RED, (food.get_position()[0] * global_GRID_SIZE, food.get_position()[1] * global_GRID_SIZE, global_GRID_SIZE, global_GRID_SIZE))
+    pygame.draw.rect(surface, RED, (food_item.get_position()[0] * global_GRID_SIZE, food_item.get_position()[1] * global_GRID_SIZE, global_GRID_SIZE, global_GRID_SIZE))
 
-def game_loop(screen, clock, agent, num_episodes=1000, training_mode=True, display_game=True, num_ai_snakes_to_train=1):
+def game_loop(screen, clock, agent, num_episodes=1000, training_mode=True, display_game=True, num_ai_snakes_to_train=1, num_food=1): # Added num_food
     total_rewards_all_episodes = []
     max_avg_score_overall = 0 # Track max average score across episodes
 
     for episode in range(num_episodes):
-        # Pass global grid dimensions to Snake and Food constructors
         snakes = [Snake(snake_id=i, grid_width=global_GRID_WIDTH, grid_height=global_GRID_HEIGHT, grid_size=global_GRID_SIZE) for i in range(num_ai_snakes_to_train)]
-        food = Food(grid_width=global_GRID_WIDTH, grid_height=global_GRID_HEIGHT)
+        foods = [Food(grid_width=global_GRID_WIDTH, grid_height=global_GRID_HEIGHT) for _ in range(num_food)]
 
         occupied_starts = set()
         for s_obj in snakes:
@@ -236,8 +252,11 @@ def game_loop(screen, clock, agent, num_episodes=1000, training_mode=True, displ
         all_initial_bodies = []
         for s_obj in snakes:
             all_initial_bodies.extend(s_obj.get_body())
-        # Food position is randomized using its own grid dimensions, which are now correct
-        food.position = food.randomize_position(all_initial_bodies)
+        
+        current_food_positions = []
+        for food_item in foods:
+            food_item.position = food_item.randomize_position(all_initial_bodies + current_food_positions)
+            current_food_positions.append(food_item.position)
 
         current_episode_rewards_per_snake = [0] * num_ai_snakes_to_train
         scores_per_snake = [0] * num_ai_snakes_to_train
@@ -279,7 +298,7 @@ def game_loop(screen, clock, agent, num_episodes=1000, training_mode=True, displ
             # 1. Get actions for all live snakes
             old_head_positions = {} # For food distance reward calculation
             for s_obj in active_snakes_this_step:
-                state = agent.get_state(s_obj, food, snakes)
+                state = agent.get_state(s_obj, foods, snakes) # Pass list of foods
                 action = agent.choose_action(state)
                 last_state_action[s_obj.id] = (state, action)
                 s_obj.change_direction(action)
@@ -293,22 +312,30 @@ def game_loop(screen, clock, agent, num_episodes=1000, training_mode=True, displ
                     step_rewards[s_obj.id] += penalty_from_move
 
             # 3. Calculate rewards and handle consequences
-            food_eaten_this_step = False
-            # Check for food eaten (only live snakes after move)
+            food_eaten_this_step_by_any_snake = False
+            
             for s_obj in snakes:
                 if not s_obj.is_alive: continue
-                if s_obj.get_head_position() == food.get_position():
-                    step_rewards[s_obj.id] += REWARD_EAT_FOOD
-                    s_obj.grow_snake()
-                    scores_per_snake[s_obj.id] += 1
-                    steps_since_last_food_per_snake[s_obj.id] = 0
-                    food_eaten_this_step = True
-                    
-                    all_current_bodies = []
-                    for s_k_food_avoid in snakes: # Use all snakes (alive or not) to avoid spawning food on them
-                        all_current_bodies.extend(s_k_food_avoid.get_body())
-                    food.position = food.randomize_position(all_current_bodies)
-                    break 
+                
+                for food_item_idx, food_item in enumerate(foods):
+                    if s_obj.get_head_position() == food_item.get_position():
+                        step_rewards[s_obj.id] += REWARD_EAT_FOOD
+                        s_obj.grow_snake()
+                        scores_per_snake[s_obj.id] += 1
+                        steps_since_last_food_per_snake[s_obj.id] = 0
+                        food_eaten_this_step_by_any_snake = True # A food was eaten this step
+                        
+                        all_current_bodies_and_other_food = []
+                        for s_k_food_avoid in snakes:
+                            all_current_bodies_and_other_food.extend(s_k_food_avoid.get_body())
+                        for other_food_idx, other_food_item in enumerate(foods):
+                            if food_item_idx != other_food_idx:
+                                all_current_bodies_and_other_food.append(other_food_item.get_position())
+                        
+                        food_item.position = food_item.randomize_position(all_current_bodies_and_other_food)
+                        # No break here, a snake could potentially eat multiple food items if they are stacked, though unlikely with proper randomization.
+                        # However, the state and reward logic might need adjustment if multiple foods can be eaten in one step by one snake.
+                        # For now, assume one food per snake per step is the dominant interaction.
 
             # Inter-snake collisions (only among snakes still alive)
             live_snakes_for_combat = [s for s in snakes if s.is_alive]
@@ -356,20 +383,32 @@ def game_loop(screen, clock, agent, num_episodes=1000, training_mode=True, displ
             for s_obj in snakes:
                 if not s_obj.is_alive: continue
 
-                if not food_eaten_this_step and s_obj.id in old_head_positions:
+                if not food_eaten_this_step_by_any_snake and s_obj.id in old_head_positions: # Check if *any* food was eaten
                     old_head_x, old_head_y = old_head_positions[s_obj.id]
-                    food_x, food_y = food.get_position()
                     
-                    old_dist_to_food = abs(food_x - old_head_x) + abs(food_y - old_head_y)
-                    new_head_pos = s_obj.get_head_position()
-                    new_dist_to_food = abs(food_x - new_head_pos[0]) + abs(food_y - new_head_pos[1])
+                    # Find closest food for reward calculation (consistent with get_state)
+                    closest_food_for_reward = None
+                    min_dist_sq_reward = float('inf')
+                    if foods: # Check if foods list is not empty
+                        for food_item_reward in foods:
+                            food_x_reward, food_y_reward = food_item_reward.get_position()
+                            dist_sq_reward = (old_head_x - food_x_reward)**2 + (old_head_y - food_y_reward)**2 # Distance from old head
+                            if dist_sq_reward < min_dist_sq_reward:
+                                min_dist_sq_reward = dist_sq_reward
+                                closest_food_for_reward = food_item_reward
+                    
+                    if closest_food_for_reward:
+                        food_x, food_y = closest_food_for_reward.get_position()
+                        old_dist_to_food = abs(food_x - old_head_x) + abs(food_y - old_head_y)
+                        new_head_pos = s_obj.get_head_position()
+                        new_dist_to_food = abs(food_x - new_head_pos[0]) + abs(food_y - new_head_pos[1])
 
-                    if new_dist_to_food < old_dist_to_food:
-                        step_rewards[s_obj.id] += REWARD_MOVE_CLOSER_TO_FOOD
-                    elif new_dist_to_food > old_dist_to_food:
-                        step_rewards[s_obj.id] += PENALTY_MOVE_AWAY_FROM_FOOD
-                    else:
-                        step_rewards[s_obj.id] += PENALTY_MOVE_PARALLEL_FOOD
+                        if new_dist_to_food < old_dist_to_food:
+                            step_rewards[s_obj.id] += REWARD_MOVE_CLOSER_TO_FOOD
+                        elif new_dist_to_food > old_dist_to_food:
+                            step_rewards[s_obj.id] += PENALTY_MOVE_AWAY_FROM_FOOD
+                        else:
+                            step_rewards[s_obj.id] += PENALTY_MOVE_PARALLEL_FOOD
                 
                 steps_since_last_food_per_snake[s_obj.id] += 1
                 if steps_since_last_food_per_snake[s_obj.id] > max_steps_without_food:
@@ -383,7 +422,7 @@ def game_loop(screen, clock, agent, num_episodes=1000, training_mode=True, displ
                         state, action = last_state_action[s_obj.id]
                         reward_for_q_update = step_rewards.get(s_obj.id, 0)
                         
-                        next_state = agent.get_state(s_obj, food, snakes) # Get state even if dead
+                        next_state = agent.get_state(s_obj, foods, snakes) # Pass list of foods
                         agent.update_q_table(state, action, reward_for_q_update, next_state)
                         current_episode_rewards_per_snake[s_obj.id] += reward_for_q_update
             
@@ -394,7 +433,8 @@ def game_loop(screen, clock, agent, num_episodes=1000, training_mode=True, displ
                 for s_disp_obj in snakes:
                     if s_disp_obj.is_alive: 
                         draw_snake(screen, s_disp_obj)
-                draw_food(screen, food)
+                for food_item in foods: # Draw all food items
+                    draw_food(screen, food_item)
                 pygame.display.flip()
                 clock.tick(15 if training_mode else 10)
             elif not display_game and training_mode:
@@ -443,10 +483,9 @@ def game_loop(screen, clock, agent, num_episodes=1000, training_mode=True, displ
         print("Final Q-table saved as q_table_final.npy")
     return total_rewards_all_episodes, agent.q_table
 
-def play_mode_game_loop(screen, clock, ai_q_learning_agent, num_ai_snakes=1):
-    # Pass global grid dimensions to Snake and Food constructors
+def play_mode_game_loop(screen, clock, ai_q_learning_agent, num_ai_snakes=1, num_food=1): # Added num_food
     player_snake = Snake(snake_id="player", grid_width=global_GRID_WIDTH, grid_height=global_GRID_HEIGHT, grid_size=global_GRID_SIZE)
-    food = Food(grid_width=global_GRID_WIDTH, grid_height=global_GRID_HEIGHT)
+    foods = [Food(grid_width=global_GRID_WIDTH, grid_height=global_GRID_HEIGHT) for _ in range(num_food)]
 
     # Initialize AI snakes
     ai_snakes = []
@@ -465,7 +504,12 @@ def play_mode_game_loop(screen, clock, ai_q_learning_agent, num_ai_snakes=1):
                 break
     
     # Food position is randomized using its own grid dimensions, which are now correct
-    food.position = food.randomize_position(list(current_all_snake_segments))
+    current_food_positions = []
+    initial_occupied_cells = list(current_all_snake_segments)
+    for food_item in foods:
+        food_item.position = food_item.randomize_position(initial_occupied_cells + current_food_positions)
+        current_food_positions.append(food_item.position)
+
 
     game_over = False
     player_score = 0
@@ -490,13 +534,20 @@ def play_mode_game_loop(screen, clock, ai_q_learning_agent, num_ai_snakes=1):
             break
 
         # --- Player Eats Food ---
-        if player_snake.get_head_position() == food.get_position():
-            player_snake.grow_snake()
-            player_score += 1
-            temp_occupied_cells = set(player_snake.get_body())
-            for s_ai in ai_snakes:
-                if s_ai.is_alive: temp_occupied_cells.update(s_ai.get_body())
-            food.position = food.randomize_position(list(temp_occupied_cells))
+        player_ate_food_this_step = False
+        for food_item_idx, food_item in enumerate(foods):
+            if player_snake.get_head_position() == food_item.get_position():
+                player_snake.grow_snake()
+                player_score += 1
+                player_ate_food_this_step = True
+                
+                temp_occupied_cells = set(player_snake.get_body())
+                for s_ai in ai_snakes:
+                    if s_ai.is_alive: temp_occupied_cells.update(s_ai.get_body())
+                
+                other_food_pos = [f.get_position() for idx, f in enumerate(foods) if idx != food_item_idx]
+                food_item.position = food_item.randomize_position(list(temp_occupied_cells) + other_food_pos)
+                # break # Assume player eats one food per step for simplicity in play mode too
 
         # --- AI Snakes Movement & AI Self/Wall Collision ---
         active_ai_snakes_after_move = []
@@ -506,7 +557,7 @@ def play_mode_game_loop(screen, clock, ai_q_learning_agent, num_ai_snakes=1):
             if ai_q_learning_agent and ai_q_learning_agent.q_table and len(ai_q_learning_agent.q_table) > 0:
                 # Construct `all_snakes_for_ai_state` including player and other AIs
                 all_snakes_for_ai_state = [player_snake] + ai_snakes
-                state = ai_q_learning_agent.get_state(ai_snake, food, all_snakes_for_ai_state)
+                state = ai_q_learning_agent.get_state(ai_snake, foods, all_snakes_for_ai_state) # Pass list of foods
                 action = ai_q_learning_agent.choose_action(state) 
                 ai_snake.change_direction(action)
             else: 
@@ -517,6 +568,20 @@ def play_mode_game_loop(screen, clock, ai_q_learning_agent, num_ai_snakes=1):
                 active_ai_snakes_after_move.append(ai_snake)
             # If ai_snake.move() != 0, it sets its own is_alive to False and is excluded
         ai_snakes = active_ai_snakes_after_move
+
+        # --- AI eats food (simplified for play mode, no direct reward, just respawn food) ---
+        for ai_snake_eat in ai_snakes:
+            if not ai_snake_eat.is_alive: continue
+            for food_item_idx, food_item_eat in enumerate(foods):
+                if ai_snake_eat.get_head_position() == food_item_eat.get_position():
+                    ai_snake_eat.grow_snake() # AI snake grows
+                    # Respawn food
+                    temp_occupied_cells_ai = set(player_snake.get_body())
+                    for s_ai_other in ai_snakes:
+                        if s_ai_other.is_alive: temp_occupied_cells_ai.update(s_ai_other.get_body())
+                    other_food_pos_ai = [f.get_position() for idx, f in enumerate(foods) if idx != food_item_idx]
+                    food_item_eat.position = food_item_eat.randomize_position(list(temp_occupied_cells_ai) + other_food_pos_ai)
+                    # break # AI eats one food
 
         # --- Inter-Snake Collisions (Player vs AI, AI vs AI) ---
         # Player head vs AI body
@@ -556,7 +621,8 @@ def play_mode_game_loop(screen, clock, ai_q_learning_agent, num_ai_snakes=1):
         if player_snake.is_alive: draw_snake(screen, player_snake)
         for ai_snake_to_draw in ai_snakes:
             if ai_snake_to_draw.is_alive: draw_snake(screen, ai_snake_to_draw)
-        draw_food(screen, food)
+        for food_item in foods: # Draw all food items
+            draw_food(screen, food_item)
         
         score_text_surface = font.render(f"Score: {player_score}", True, WHITE)
         screen.blit(score_text_surface, (10, 10))
@@ -584,15 +650,20 @@ if __name__ == "__main__":
     train_parser.add_argument("--continue_training", action="store_true", help="Continue training from the last saved model (q_table.npy or q_table_final.npy). If not provided, starts new training.")
     train_parser.add_argument("--episodes", type=int, default=2000, help="Number of episodes for training (default: 2000).")
     train_parser.add_argument("--ai_number", type=int, default=1, metavar="N", help="Number of AI agents to train simultaneously (default: 1). Must be 1 or greater.")
+    train_parser.add_argument("--food_number", type=int, default=1, metavar="F", help="Number of food items on the screen (default: 1).")
 
     # --- Play Subparser ---
     play_parser = subparsers.add_parser("play", help="Play the game or watch AI (with visuals).")
     play_parser.add_argument("--ai_number", type=int, default=1, metavar="N", help="Number of AI snakes. If --player is used, this is the number of AI opponents (default: 1). If --player is not used, this is the number of AI snakes to watch (default: 1). Must be 1 or greater, or 0 if --player is specified (meaning player vs no AIs).")
     play_parser.add_argument("--player", action="store_true", help="Spawn a controllable player snake. If used, --ai_number specifies AI opponents.")
+    play_parser.add_argument("--food_number", type=int, default=1, metavar="F", help="Number of food items on the screen (default: 1).")
 
     args = parser.parse_args()
 
-    # Validate ai_number based on command
+    # Validate ai_number and food_number based on command
+    if args.food_number < 1:
+        parser.error("--food_number must be 1 or greater.")
+
     if args.command == "train":
         if args.ai_number < 1:
             parser.error("--ai_number for train must be 1 or greater.")
@@ -654,7 +725,8 @@ if __name__ == "__main__":
             num_episodes=args.episodes,
             training_mode=True,
             display_game=False, # No visuals for training
-            num_ai_snakes_to_train=num_snakes_for_training
+            num_ai_snakes_to_train=num_snakes_for_training,
+            num_food=args.food_number # Pass food_number
         )
         
         if rewards:
@@ -691,17 +763,18 @@ if __name__ == "__main__":
 
         if args.player:
             # If player mode, ai_number is number of opponents. Can be 0.
-            print(f"Player mode activated with {num_ai_snakes_in_play} AI opponent(s).")
-            play_mode_game_loop(screen, clock, ai_agent_for_play, num_ai_snakes=num_ai_snakes_in_play)
+            print(f"Player mode activated with {num_ai_snakes_in_play} AI opponent(s) and {args.food_number} food item(s).")
+            play_mode_game_loop(screen, clock, ai_agent_for_play, num_ai_snakes=num_ai_snakes_in_play, num_food=args.food_number) # Pass food_number
         else:
             # If not player mode, ai_number is number of AIs to watch. Must be >= 1.
-            print(f"Watching {num_ai_snakes_in_play} AI snake(s) demo.")
+            print(f"Watching {num_ai_snakes_in_play} AI snake(s) demo with {args.food_number} food item(s).")
             game_loop(
                 screen, clock, ai_agent_for_play,
                 num_episodes=5,  # Short demo
                 training_mode=False,
                 display_game=True,
-                num_ai_snakes_to_train=num_ai_snakes_in_play 
+                num_ai_snakes_to_train=num_ai_snakes_in_play,
+                num_food=args.food_number # Pass food_number
             )
 
     pygame.quit()

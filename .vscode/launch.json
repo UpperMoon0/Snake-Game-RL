@@ -15,8 +15,9 @@
             "args": [
                 "train",
                 "--episodes", "5000",
-                "--ai_number", "4",
-                "--continue_training"
+                "--ai_number", "16",
+                "--continue_training",
+                "--food_number", "4"
             ]
         },
         {
@@ -32,8 +33,9 @@
             "cwd": "${workspaceFolder}",
             "args": [
                 "play",
-                // "--player", // Uncomment to play as a human
-                "--ai_number", "4"
+                //"--player", // Uncomment to play as a human
+                "--ai_number", "6",
+                "--food_number", "2"
             ]
         }
     ]
