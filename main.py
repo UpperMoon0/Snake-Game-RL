@@ -14,6 +14,14 @@ GRID_SIZE = 20
 GRID_WIDTH = WIDTH // GRID_SIZE
 GRID_HEIGHT = HEIGHT // GRID_SIZE
 
+# Make these global so they can be updated if the screen is resized
+global global_WIDTH, global_HEIGHT, global_GRID_WIDTH, global_GRID_HEIGHT, global_GRID_SIZE
+global_WIDTH = WIDTH
+global_HEIGHT = HEIGHT
+global_GRID_WIDTH = GRID_WIDTH
+global_GRID_HEIGHT = GRID_HEIGHT
+global_GRID_SIZE = GRID_SIZE
+
 # Colors
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
@@ -127,7 +135,7 @@ class QLearningAgent:
         next_y = (head_y + direction_vector[1])
 
         # Check wall collision
-        if not (0 <= next_x < GRID_WIDTH and 0 <= next_y < GRID_HEIGHT):
+        if not (0 <= next_x < global_GRID_WIDTH and 0 <= next_y < global_GRID_HEIGHT):
             return 1 # Danger: wall
 
         # Check self collision
@@ -551,7 +559,18 @@ if __name__ == "__main__":
         # args.episodes default is fine for this warning
 
     pygame.init()
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    infoObject = pygame.display.Info()
+    screen_width = infoObject.current_w
+    screen_height = infoObject.current_h
+    screen = pygame.display.set_mode((screen_width, screen_height), pygame.FULLSCREEN)
+    
+    # Update global variables for screen dimensions
+    global_WIDTH = screen_width
+    global_HEIGHT = screen_height
+    # Assuming GRID_SIZE remains constant, recalculate GRID_WIDTH and GRID_HEIGHT
+    global_GRID_WIDTH = global_WIDTH // global_GRID_SIZE
+    global_GRID_HEIGHT = global_HEIGHT // global_GRID_SIZE
+    
     pygame.display.set_caption("Snake RL")
     clock = pygame.time.Clock()
 
