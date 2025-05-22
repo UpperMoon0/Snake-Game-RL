@@ -134,9 +134,20 @@ class QLearningAgent:
         next_x = (head_x + direction_vector[0])
         next_y = (head_y + direction_vector[1])
 
-        # Check wall collision
-        if not (0 <= next_x < global_GRID_WIDTH and 0 <= next_y < global_GRID_HEIGHT):
-            return 1 # Danger: wall
+        # Wall collision check (wrapping) - A wall is no longer a danger
+        # if not (0 <= next_x < global_GRID_WIDTH and 0 <= next_y < global_GRID_HEIGHT):
+        #     return 1 # Danger: wall
+
+        # Apply wrapping for next_x and next_y to check for self-collision after wrapping
+        if next_x >= global_GRID_WIDTH:
+            next_x = 0
+        elif next_x < 0:
+            next_x = global_GRID_WIDTH - 1
+        
+        if next_y >= global_GRID_HEIGHT:
+            next_y = 0
+        elif next_y < 0:
+            next_y = global_GRID_HEIGHT - 1
 
         # Check self collision
         if (next_x, next_y) in snake.body:
@@ -196,7 +207,7 @@ def draw_grid(surface):
 def draw_snake(surface, snake):
     # Use global_GRID_SIZE for drawing segment size
     for segment in snake.get_body():
-        pygame.draw.rect(surface, GREEN, (segment[0] * global_GRID_SIZE, segment[1] * global_GRID_SIZE, global_GRID_SIZE, global_GRID_SIZE))
+        pygame.draw.rect(surface, snake.color, (segment[0] * global_GRID_SIZE, segment[1] * global_GRID_SIZE, global_GRID_SIZE, global_GRID_SIZE))
 
 def draw_food(surface, food):
     # Use global_GRID_SIZE for drawing food size

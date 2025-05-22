@@ -14,7 +14,8 @@ class Snake:
         self.id = snake_id
         self.grid_width = grid_width
         self.grid_height = grid_height
-        self.grid_size = grid_size # Though not directly used in move, good to have if needed later
+        self.grid_size = grid_size 
+        self.color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
 
         self.body = [(self.grid_width // 2, self.grid_height // 2)]
         self.direction = random.choice([UP, DOWN, LEFT, RIGHT])
@@ -29,12 +30,17 @@ class Snake:
         new_head_x = head_x + dir_x
         new_head_y = head_y + dir_y
 
-        # Wall collision check (no wrapping, actual collision)
-        if not (0 <= new_head_x < self.grid_width and 0 <= new_head_y < self.grid_height):
-            self.is_alive = False
-            return PENALTY_SELF_WALL_COLLISION
+        # Wall collision check (wrapping)
+        if new_head_x >= self.grid_width:
+            new_head_x = 0
+        elif new_head_x < 0:
+            new_head_x = self.grid_width - 1
         
-        # If not wall collision, new_head is within bounds
+        if new_head_y >= self.grid_height:
+            new_head_y = 0
+        elif new_head_y < 0:
+            new_head_y = self.grid_height - 1
+        
         new_head = (new_head_x, new_head_y)
 
         # Check for collision with itself
