@@ -14,9 +14,9 @@
             "cwd": "${workspaceFolder}",
             "args": [
                 "train",
-                // "--continue_training", // Uncomment to continue training
-                "--episodes", "2000",
-                "--ai_number", "1"
+                "--episodes", "5000",
+                "--ai_number", "4",
+                "--continue_training"
             ]
         },
         {
@@ -33,7 +33,7 @@
             "args": [
                 "play",
                 // "--player", // Uncomment to play as a human
-                "--ai_number", "1"
+                "--ai_number", "4"
             ]
         }
     ]
