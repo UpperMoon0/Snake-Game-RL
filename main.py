@@ -543,135 +543,131 @@ def play_mode_game_loop(screen, clock, ai_q_learning_agent, num_ai_snakes=1):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Snake RL Agent")
-    parser.add_argument("--continue-training", action="store_true", help="Continue training from the last saved model (q_table.npy or q_table_final.npy if the former is not found).")
-    parser.add_argument("--demo", action="store_true", help="Run in demonstration mode using q_table_final.npy. If combined with training, demo runs after training.")
-    parser.add_argument("--episodes", type=int, default=2000, help="Number of episodes for training.")
-    parser.add_argument("--play", action="store_true", help="Play the game against AI snakes.")
-    parser.add_argument("--ais", type=int, default=0, help="Number of AI snakes. In --play mode, this is opponents. In training mode (if >0), this is the number of agents to train simultaneously. If 0 in training/demo, defaults to 1.")
+    subparsers = parser.add_subparsers(dest="command", required=True, help='Main command: train or play')
+
+    # --- Train Subparser ---
+    train_parser = subparsers.add_parser("train", help="Train the AI model (no visuals).")
+    train_parser.add_argument("--continue_training", action="store_true", help="Continue training from the last saved model (q_table.npy or q_table_final.npy). If not provided, starts new training.")
+    train_parser.add_argument("--episodes", type=int, default=2000, help="Number of episodes for training (default: 2000).")
+    train_parser.add_argument("--ai_number", type=int, default=1, metavar="N", help="Number of AI agents to train simultaneously (default: 1). Must be 1 or greater.")
+
+    # --- Play Subparser ---
+    play_parser = subparsers.add_parser("play", help="Play the game or watch AI (with visuals).")
+    play_parser.add_argument("--ai_number", type=int, default=1, metavar="N", help="Number of AI snakes. If --player is used, this is the number of AI opponents (default: 1). If --player is not used, this is the number of AI snakes to watch (default: 1). Must be 1 or greater, or 0 if --player is specified (meaning player vs no AIs).")
+    play_parser.add_argument("--player", action="store_true", help="Spawn a controllable player snake. If used, --ai_number specifies AI opponents.")
 
     args = parser.parse_args()
 
-    # Combined mode check - play mode is exclusive of training execution paths
-    if args.play and (args.continue_training or args.episodes != parser.get_default("episodes")):
-        print("Warning: --continue-training and --episodes are ignored in --play mode. Player vs AI mode will use q_table_final.npy for AI opponents.")
-        # Reset training-related flags if play is dominant
-        if args.continue_training: args.continue_training = False
-        # args.episodes default is fine for this warning
+    # Validate ai_number based on command
+    if args.command == "train":
+        if args.ai_number < 1:
+            parser.error("--ai_number for train must be 1 or greater.")
+    elif args.command == "play":
+        if not args.player and args.ai_number < 1:
+            parser.error("--ai_number for watching AI must be 1 or greater.")
+        elif args.player and args.ai_number < 0: # Allow 0 AI opponents if player is active
+            parser.error("--ai_number for AI opponents cannot be negative.")
+
 
     pygame.init()
     infoObject = pygame.display.Info()
     screen_width = infoObject.current_w
     screen_height = infoObject.current_h
-    screen = pygame.display.set_mode((screen_width, screen_height), pygame.FULLSCREEN)
     
-    # Update global variables for screen dimensions
+    # Initialize screen variable, will be set to fullscreen for play, or not used for train
+    screen = None 
+    if args.command == "play":
+        screen = pygame.display.set_mode((screen_width, screen_height), pygame.FULLSCREEN)
+    
     global_WIDTH = screen_width
     global_HEIGHT = screen_height
-    # Assuming GRID_SIZE remains constant, recalculate GRID_WIDTH and GRID_HEIGHT
     global_GRID_WIDTH = global_WIDTH // global_GRID_SIZE
     global_GRID_HEIGHT = global_HEIGHT // global_GRID_SIZE
     
-    pygame.display.set_caption("Snake RL")
+    if screen: # Only set caption if screen is initialized
+        pygame.display.set_caption("Snake RL")
     clock = pygame.time.Clock()
-
-    agent = QLearningAgent() # This agent is used for training or single-agent demo
-    ai_agent_for_play_mode = None # This agent is for AI opponents in play mode
 
     q_table_final_path = "q_table_final.npy"
     q_table_periodic_path = "q_table.npy"
-    rewards = [] # For plotting training rewards
 
-    if args.play:
-        print(f"--- Player vs. AI Mode ({args.ais if args.ais > 0 else 1} AI(s)) ---")
-        num_opponents = args.ais if args.ais > 0 else 1 # Default to 1 AI opponent if --ais is 0 or not set in play mode
-        ai_agent_for_play_mode = QLearningAgent(exploration_rate=0.0, min_exploration_rate=0.0) # Ensure exploitation for opponents
+    if args.command == "train":
+        print("--- Training Mode ---")
+        # Screen is not needed for training, so we can pass None or a dummy surface if required by game_loop
+        # For now, assuming game_loop can handle screen=None if display_game=False
+        agent = QLearningAgent()
+        num_snakes_for_training = args.ai_number
+
+        if args.continue_training:
+            try:
+                try:
+                    agent.q_table = np.load(q_table_periodic_path, allow_pickle=True).item()
+                    print(f"Continuing training from {q_table_periodic_path} with {num_snakes_for_training} snake(s).")
+                except FileNotFoundError:
+                    agent.q_table = np.load(q_table_final_path, allow_pickle=True).item()
+                    print(f"Continuing training from {q_table_final_path} with {num_snakes_for_training} snake(s) ({q_table_periodic_path} not found).")
+            except FileNotFoundError:
+                print(f"No saved Q-table found ({q_table_periodic_path} or {q_table_final_path}). Starting fresh training with {num_snakes_for_training} snake(s).")
+            except Exception as e:
+                print(f"Error loading Q-table for continuation: {e}. Starting fresh training with {num_snakes_for_training} snake(s).")
+        else:
+            print(f"Starting new training session with {num_snakes_for_training} snake(s).")
+
+        print(f"Training for {args.episodes} episodes...")
+        # Pass a dummy screen or None if game_loop handles it when display_game is False
+        rewards, agent.q_table = game_loop(
+            None, clock, agent, # Pass None for screen
+            num_episodes=args.episodes,
+            training_mode=True,
+            display_game=False, # No visuals for training
+            num_ai_snakes_to_train=num_snakes_for_training
+        )
+        
+        if rewards:
+            plt.figure()
+            plt.plot(rewards)
+            plt.title(f'Total Rewards per Episode ({num_snakes_for_training} snakes)')
+            plt.xlabel('Episode')
+            plt.ylabel('Total Reward')
+            plot_filename = f'rewards_plot_{num_snakes_for_training}_snakes.png'
+            plt.savefig(plot_filename)
+            print(f"Rewards plot saved to {plot_filename}")
+
+    elif args.command == "play":
+        if not screen: # Should have been initialized for play mode
+            print("Error: Screen not initialized for play mode.")
+            pygame.quit()
+            exit()
+            
+        print("--- Play/Watch Mode ---")
+        ai_agent_for_play = QLearningAgent(exploration_rate=0.0, min_exploration_rate=0.0) # AI should exploit
+        
         try:
             print(f"Loading model for AI snakes from {q_table_final_path}...")
-            ai_agent_for_play_mode.q_table = np.load(q_table_final_path, allow_pickle=True).item()
-            print(f"Successfully loaded {q_table_final_path} for AI opponents.")
+            ai_agent_for_play.q_table = np.load(q_table_final_path, allow_pickle=True).item()
+            print(f"Successfully loaded {q_table_final_path} for AI.")
         except FileNotFoundError:
-            print(f"Warning: {q_table_final_path} not found for AI opponents. AI will move randomly or with an empty Q-table.")
-            ai_agent_for_play_mode.q_table = {} # Ensure q_table exists
+            print(f"Warning: {q_table_final_path} not found. AI will move randomly or with an empty Q-table.")
+            ai_agent_for_play.q_table = {}
         except Exception as e:
-            print(f"Error loading Q-table for AI opponents: {e}. AI will move randomly or with an empty Q-table.")
-            ai_agent_for_play_mode.q_table = {} # Ensure q_table exists
-        
-        play_mode_game_loop(screen, clock, ai_agent_for_play_mode, num_ai_snakes=num_opponents)
-    
-    else: # Training or Demo mode
-        num_snakes_for_operation = args.ais if args.ais > 0 else 1
+            print(f"Error loading Q-table for AI: {e}. AI will move randomly or with an empty Q-table.")
+            ai_agent_for_play.q_table = {}
 
-        training_performed_this_run = False
-        # Determine if training should occur
-        should_train = args.continue_training or not args.demo
+        num_ai_snakes_in_play = args.ai_number
 
-        if should_train:
-            if args.continue_training:
-                try:
-                    # Try loading periodic save first, then final save
-                    try:
-                        agent.q_table = np.load(q_table_periodic_path, allow_pickle=True).item()
-                        print(f"Continuing training from {q_table_periodic_path} with {num_snakes_for_operation} snake(s).")
-                    except FileNotFoundError:
-                        agent.q_table = np.load(q_table_final_path, allow_pickle=True).item()
-                        print(f"Continuing training from {q_table_final_path} with {num_snakes_for_operation} snake(s) ({q_table_periodic_path} not found).")
-                    # Optionally adjust epsilon when continuing, e.g., agent.epsilon = max(agent.min_epsilon, agent.epsilon * 0.8)
-                except FileNotFoundError:
-                    print(f"No saved Q-table found ({q_table_periodic_path} or {q_table_final_path}). Starting fresh training with {num_snakes_for_operation} snake(s).")
-                except Exception as e:
-                    print(f"Error loading Q-table for continuation: {e}. Starting fresh training with {num_snakes_for_operation} snake(s).")
-            else: # Fresh training (not continue_training, and not demo-only implies training)
-                print(f"Starting new training session with {num_snakes_for_operation} snake(s).")
-
-            print(f"Training for {args.episodes} episodes...")
-            rewards, agent.q_table = game_loop(
-                screen, clock, agent,
-                num_episodes=args.episodes,
-                training_mode=True,
-                display_game=False, # Set to True to watch training (slower)
-                num_ai_snakes_to_train=num_snakes_for_operation
-            )
-            training_performed_this_run = True
-            
-            if rewards: # Plotting rewards
-                plt.figure() # Ensure a new figure for the plot
-                plt.plot(rewards)
-                plt.title(f'Total Rewards per Episode ({num_snakes_for_operation} snakes)')
-                plt.xlabel('Episode')
-                plt.ylabel('Total Reward')
-                plot_filename = f'rewards_plot_{num_snakes_for_operation}_snakes.png'
-                plt.savefig(plot_filename)
-                print(f"Rewards plot saved to {plot_filename}")
-                # plt.show() # Uncomment to display plot, but it can be blocking
-
-        # Handle demo phase
-        if args.demo:
-            print(f"--- Demo Mode ({num_snakes_for_operation} AI(s)) ---")
-            if not training_performed_this_run: # Load model only if no training was done in this run
-                try:
-                    agent.q_table = np.load(q_table_final_path, allow_pickle=True).item()
-                    print(f"Loaded Q-table from {q_table_final_path} for demo.")
-                except FileNotFoundError:
-                    print(f"Error: {q_table_final_path} not found for demo. Cannot run demo without a trained model.")
-                    pygame.quit()
-                    exit() # Exit if demo cannot run
-                except Exception as e:
-                    print(f"Error loading Q-table for demo: {e}")
-                    pygame.quit()
-                    exit() # Exit if demo cannot run
-
-            agent.epsilon = 0.0  # Ensure exploitation for demo
-            agent.min_epsilon = 0.0 # Ensure exploitation for demo
-
-            print(f"Running demo with {num_snakes_for_operation} snake(s)...")
+        if args.player:
+            # If player mode, ai_number is number of opponents. Can be 0.
+            print(f"Player mode activated with {num_ai_snakes_in_play} AI opponent(s).")
+            play_mode_game_loop(screen, clock, ai_agent_for_play, num_ai_snakes=num_ai_snakes_in_play)
+        else:
+            # If not player mode, ai_number is number of AIs to watch. Must be >= 1.
+            print(f"Watching {num_ai_snakes_in_play} AI snake(s) demo.")
             game_loop(
-                screen, clock, agent,
-                num_episodes=5,  # Number of demo episodes
+                screen, clock, ai_agent_for_play,
+                num_episodes=5,  # Short demo
                 training_mode=False,
                 display_game=True,
-                num_ai_snakes_to_train=num_snakes_for_operation
+                num_ai_snakes_to_train=num_ai_snakes_in_play 
             )
 
     pygame.quit()
-    # import sys # If using sys.exit()
-    # sys.exit()

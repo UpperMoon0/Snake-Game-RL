@@ -2,30 +2,39 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: Train",
+            "name": "Python: Train Model",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
             "console": "integratedTerminal",
-            "justMyCode": true, 
+            "justMyCode": true,
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
             },
             "cwd": "${workspaceFolder}",
-            "args": ["--continue-training", "--ais", "4", "--episodes", "3000", "--demo"] 
+            "args": [
+                "train",
+                // "--continue_training", // Uncomment to continue training
+                "--episodes", "2000",
+                "--ai_number", "1"
+            ]
         },
         {
-            "name": "Python: Play",
+            "name": "Python: Play/Watch Game",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
             "console": "integratedTerminal",
-            "justMyCode": true, 
+            "justMyCode": true,
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
             },
             "cwd": "${workspaceFolder}",
-            "args": ["--episodes", "10000", "--demo", "--play", "--ais", "3"] 
+            "args": [
+                "play",
+                // "--player", // Uncomment to play as a human
+                "--ai_number", "1"
+            ]
         }
     ]
 }
